@@ -20,16 +20,53 @@
 #
 require "backlog_reporter/version"
 require "backlog_reporter/railtie" if defined? Rails
+require 'rest-client'
+require 'multi_json'
+require 'puma'
 
 class BacklogReporter
-  def initialize flag_path, max_backlog = 16
+  def initialize flag_path, token, max_backlog = 16
+    @token = token
     @flag = FlagFile.new flag_path
     @max_backlog = max_backlog
   end
 
+  def log level, msg=nil
+    if !msg
+      msg = level
+      level = 'info'
+    end
+
+    if defined?(Rails)
+      Rails.logger.send(level, 'BacklogReporter: ' + msg)
+    else
+      puts('BacklogReporter: ' + msg)
+    end
+  end
+
+  def check_http
+    begin
+      resp = RestClient.get("http://127.0.0.1:9293/stats?token=#{@token}", {accept: :json})
+    rescue => ex
+      log 'error', ex.to_s
+      return
+    end
+
+    backlogs = MultiJson.load(resp.body)["worker_status"].map {|status|
+       backlog = status['last_status']['backlog'] || 0
+       if backlog > 0
+	 "PID #{status['pid']}: #{backlog}"
+       end
+       }.compact
+
+    if backlogs.length > 0
+      log(backlogs.join(', '))
+    end
+  end
+
   def check
-    require 'puma'
     if server = puma_server
+      log server.backlog.to_s
       @flag.set server.backlog > @max_backlog
     end
   end
@@ -43,11 +80,17 @@ class BacklogReporter
 
   def check_periodically interval_s = 0.01
     while true
-      check rescue nil                                                                                                                   
+      begin
+        check_http
+        check
+      rescue => ex
+        log 'error', ex.to_s
+      end
+
       sleep interval_s                                                                                                                   
     end                                                                                                                                  
-  end                                                                                                                                    
-                                                                                                                                         
+  end
+
   def check_in_background interval_s = 0.01                                                                                              
     @thread = Thread.new { check_periodically interval_s }                                                                               
   end

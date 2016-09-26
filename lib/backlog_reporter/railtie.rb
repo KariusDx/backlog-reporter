@@ -24,11 +24,12 @@ class BacklogReporter
     config.backlog_reporter.max_backlog = 16
     config.backlog_reporter.check_interval = 0.01
     config.backlog_reporter.flag_path = nil
+    config.backlog_reporter.token = nil
 
     initializer "backlog_reporter.run" do
       conf = config.backlog_reporter
       if conf.flag_path
-        @backlog_reporter = BacklogReporter.new conf.flag_path, conf.max_backlog
+        @backlog_reporter = BacklogReporter.new conf.flag_path, conf.token, conf.max_backlog
         @backlog_reporter.check_in_background conf.check_interval
       end
     end
